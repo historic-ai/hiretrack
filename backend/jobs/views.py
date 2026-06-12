@@ -1,7 +1,10 @@
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.authtoken.models import Token
+from django.contrib.auth.models import User
+from django.contrib.auth import authenticate
 from .models import JobApplication
 from .serializers import JobApplicationSerializer
 
@@ -58,3 +61,82 @@ def delete_application(request, pk):
         return Response({'error': 'Application not found'}, status=status.HTTP_404_NOT_FOUND)
     application.delete()
     return Response({'message': 'Deleted successfully'}, status=status.HTTP_204_NO_CONTENT)
+
+# REGISTER
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def register(request):
+    username = request.data.get('username')
+    email = request.data.get('email')
+    password = request.data.get('password')
+
+    # Check if all fields are given
+    if not username or not email or not password:
+        return Response(
+            {'error': 'Please provide username, email and password'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Check if username already exists
+    if User.objects.filter(username=username).exists():
+        return Response(
+            {'error': 'Username already taken'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Create the user
+    user = User.objects.create_user(
+        username=username,
+        email=email,
+        password=password
+    )
+
+    # Create token for this user
+    token = Token.objects.create(user=user)
+
+    return Response({
+        'message': 'Account created successfully',
+        'token': token.key,
+        'username': user.username
+    }, status=status.HTTP_201_CREATED)
+
+
+# LOGIN
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def login(request):
+    username = request.data.get('username')
+    password = request.data.get('password')
+
+    if not username or not password:
+        return Response(
+            {'error': 'Please provide username and password'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Check username and password
+    user = authenticate(username=username, password=password)
+
+    if not user:
+        return Response(
+            {'error': 'Invalid username or password'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Get or create token
+    token, created = Token.objects.get_or_create(user=user)
+
+    return Response({
+        'message': 'Login successful',
+        'token': token.key,
+        'username': user.username
+    })
+
+
+# LOGOUT
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def logout(request):
+    # Delete the token — user must login again to get new token
+    request.user.auth_token.delete()
+    return Response({'message': 'Logged out successfully'})
